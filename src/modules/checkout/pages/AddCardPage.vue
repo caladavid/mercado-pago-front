@@ -1,110 +1,161 @@
 <template>
-  <div class="wrap">
-    <header class="header">
+  <div class="page-wrapper">
+    <div class="payment-container">
+      
+      <div class="header-section">
+        <div class="logo">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/a/ab/Logo_TV_2015.png" alt="Logo" />
+        </div>
+        <div class="product-details">
+          <div class="payment-type">Suscripción</div>
+          <div class="product-name">Acceso Premium</div>
+          <div class="product-price">
+            {{ selectedPlan === 'monthly' ? '$9.99/mes' : '$99.99/año' }}
+          </div>
+        </div>
+      </div>
+
       <div>
-        <h2>Agregar tarjeta</h2>
-        <div class="muted">Ref: {{ external_reference }}</div>
-      </div>
-      <button class="btn secondary" @click="goBack">Volver</button>
-    </header>
+        <div class="section-title">Elige tu plan</div>
+        <div class="card-options">
+          
+          <div 
+            class="card-option" 
+            :class="{ selected: selectedPlan === 'monthly' }" 
+            @click="selectedPlan = 'monthly'"
+          >
+            <input type="radio" :checked="selectedPlan === 'monthly'" readonly />
+            <span class="card-icon">📅</span>
+            <div class="card-details">
+              <span class="card-label">Plan Mensual</span>
+              <span class="card-sub">Facturación cada mes</span>
+            </div>
+          </div>
 
-    <section class="card">
-      <div class="card-title">
-        <h3>Datos del titular</h3>
-        <div class="muted">Necesarios para tokenizar de forma segura</div>
-      </div>
+          <div 
+            class="card-option" 
+            :class="{ selected: selectedPlan === 'annual' }" 
+            @click="selectedPlan = 'annual'"
+          >
+            <input type="radio" :checked="selectedPlan === 'annual'" readonly />
+            <span class="card-icon">⭐️</span>
+            <div class="card-details">
+              <span class="card-label">Plan Anual</span>
+              <span class="card-sub">Ahorra 17%</span>
+            </div>
+          </div>
 
-      <div class="grid">
-        <div class="field">
-          <label>Nombre del titular *</label>
-          <input
-            v-model.trim="cardholderName"
-            placeholder="Nombre y apellido"
-            autocomplete="cc-name"
-            :disabled="loading"
-          />
-        </div>
-
-        <div class="field">
-          <label>Tipo documento *</label>
-          <select v-model="identificationType" :disabled="loading">
-            <option value="DNI">DNI</option>
-            <option value="CI">CI</option>
-            <option value="RUT">RUT</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>Número documento *</label>
-          <input 
-            v-model.trim="identificationNumber" 
-            placeholder="Ej: 12345678"
-            :disabled="loading"
-          />
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="card-title">
-        <h3>Datos de la tarjeta</h3>
-        <div class="muted">Estos campos se ingresan en un formulario seguro</div>
-      </div>
-
-      <div class="field">
-        <label>Número de tarjeta *</label>
-        <div class="mp-field compact" id="mp-card-number"></div>
-      </div>
-
-      <div class="row3">
-        <div class="field">
-          <label>Mes *</label>
-          <div class="mp-field mini" id="mp-exp-month"></div>
-        </div>
-        <div class="field">
-          <label>Año *</label>
-          <div class="mp-field mini" id="mp-exp-year"></div>
-        </div>
-        <div class="field">
-          <label>CVC *</label>
-          <div class="mp-field mini" id="mp-cvc"></div>
         </div>
       </div>
 
-      <div class="actions">
-        <button class="btn" :disabled="loading || !canSubmit" @click="onAddCard">
-          {{ loading ? "Agregando..." : "Agregar tarjeta" }}
-        </button>
+      <div class="add-card">
+        <div class="section-title">Datos del titular</div>
+        
+        <div class="form-grid">
+          <div class="input-group full-width">
+            <label>Email *</label>
+            <input v-model.trim="payerEmail" type="email" placeholder="tu@email.com" :disabled="subscribing" />
+          </div>
 
-        <div class="muted small">
-          Luego volverás al checkout para pagar.
+          <div class="input-group full-width">
+            <label>Nombre y Apellido *</label>
+            <input 
+              v-model.trim="cardholderName" 
+              type="text" 
+              placeholder="Como aparece en la tarjeta" 
+              autocomplete="cc-name"
+              :disabled="subscribing"
+            />
+          </div>
+
+          <div class="input-group">
+            <label>Tipo Doc</label>
+            <select v-model="identificationType" :disabled="subscribing">
+              <option value="CI">CI</option>
+              <option value="DNI">DNI</option>
+              <option value="RUT">RUT</option>
+            </select>
+          </div>
+          <div class="input-group">
+            <label>Número Doc *</label>
+            <input 
+              v-model.trim="identificationNumber" 
+              type="text" 
+              placeholder="12345678" 
+              :disabled="subscribing"
+            />
+          </div>
+
+          <div class="input-group full-width">
+            <label>Número de tarjeta *</label>
+            <div id="mp-card-number" class="mp-container"></div>
+          </div>
+
+          <div class="input-group">
+            <label>Mes (MM) *</label>
+            <div id="mp-exp-month" class="mp-container"></div>
+          </div>
+          
+          <div class="input-group">
+            <label>Año (AA) *</label>
+            <div id="mp-exp-year" class="mp-container"></div>
+          </div>
+
+          <div class="input-group">
+            <label>CVV *</label>
+            <div id="mp-cvc" class="mp-container"></div>
+          </div>
         </div>
       </div>
 
-      <div v-if="error" class="error">{{ error }}</div>
-      <div v-if="success" class="success">{{ success }}</div>
-    </section>
+      <button 
+        class="pay-btn" 
+        @click="submitSubscription" 
+        :disabled="!canSubscribe || subscribing"
+      >
+        {{ subscribing ? 'Procesando...' : 'Suscribirme Ahora' }}
+      </button>
+
+      <div v-if="subscriptionSuccess" class="result-message result-success">
+        {{ subscriptionSuccess }}
+      </div>
+      <div v-if="subscriptionError" class="result-message result-error">
+        {{ subscriptionError }}
+      </div>
+
+      <div class="footer">Transacción segura &mdash; Mercado Pago</div>
+
+      <div v-if="subscribing" class="loading-overlay">
+        <span>Procesando pago...</span>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { onMounted, onUnmounted, computed, ref } from "vue";
 import { loadMercadoPago } from "@mercadopago/sdk-js";
+import { useRoute, useRouter } from "vue-router";
+
+// IMPORTA TU API REAL AQUÍ
+// import { subscribeCheckout } from "../../../api/checkout.api"; 
 
 const route = useRoute();
 const router = useRouter();
+const externalReference = route.params.external_reference || "default_ref";
 
-const external_reference = route.params.external_reference;
-
+// --- ESTADO ---
+const payerEmail = ref("");
 const cardholderName = ref("");
-const identificationType = ref("CI"); // Uruguay: CI por defecto
+const identificationType = ref("CI");
 const identificationNumber = ref("");
+const selectedPlan = ref("monthly");
 
-const loading = ref(false);
-const error = ref("");
-const success = ref("");
+const subscriptionError = ref("");
+const subscriptionSuccess = ref("");
+const subscribing = ref(false);
 
+// --- MP VARIABLES ---
 let mp = null;
 let fields = null;
 let cardNumberField = null;
@@ -112,358 +163,408 @@ let expMonthField = null;
 let expYearField = null;
 let cvcField = null;
 
-const canSubmit = computed(() => {
+const canSubscribe = computed(() => {
   return (
-    cardholderName.value.length >= 3 &&
-    identificationNumber.value.length >= 4 &&
-    identificationType.value &&
-    !loading.value
+    payerEmail.value.trim().length >= 5 &&
+    cardholderName.value.trim().length >= 3 &&
+    identificationNumber.value.trim().length >= 4 &&
+    !subscribing.value
   );
 });
 
-function goBack() {
-  router.push({ name: "checkout", params: { external_reference } });
-}
-
-async function fetchCheckout() {
-  const base = import.meta.env.VITE_API_BASE_URL;
-  const r = await fetch(`${base}/checkout/${encodeURIComponent(external_reference)}`);
-  if (!r.ok) throw new Error("No pude cargar el checkout");
-  return r.json();
-}
-
-async function initSecureFields(publicKey, localeOverride) {
-  try {
-    console.log("Inicializando MP con key:", publicKey.substring(0, 15) + "...");
-    
-    // Cargar SDK
-    await loadMercadoPago();
-    
-    if (!window.MercadoPago) {
-      throw new Error("MercadoPago SDK no cargado");
-    }
-    
-    // Inicializar MP con locale de UY (o override por env)
-    const locale = localeOverride || import.meta.env.VITE_MP_LOCALE || 'es-UY';
-    mp = new window.MercadoPago(publicKey.trim(), {
-      locale,
-      advancedFraudPrevention: false
+// --- API SIMULADA (Reemplazar con import real) ---
+// Esta función simula la llamada a tu backend
+async function subscribeCheckout(ref, payload) {
+    const base = import.meta.env.VITE_API_BASE_URL;
+    const res = await fetch(`${base}/checkout/${ref}/subscribe`, { // Ajusta tu endpoint
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
     });
+    return res.json();
+}
+
+// --- MERCADO PAGO ---
+async function initSecureFields() {
+  if (fields) return;
+  try {
+    await loadMercadoPago();
+    const pk = import.meta.env.VITE_MP_PUBLIC_KEY; 
     
-    console.log("MP inicializado, verificando fields...", mp);
-    
-    // Versión alternativa: usar directamente mp.fields si está disponible
-    if (mp.fields) {
-      console.log("Usando mp.fields directo");
-      fields = mp.fields;
-    } else {
-      // Algunas versiones tienen fields como propiedad directa del objeto
-      console.log("MP object keys:", Object.keys(mp));
-      throw new Error("No se encontró mp.fields");
+    if (!pk) {
+      subscriptionError.value = "Falta configuración de Mercado Pago (Public Key)";
+      return;
     }
-    
-    // Crear campos con estilo básico
+
+    mp = new window.MercadoPago(pk.trim(), { 
+        locale: "es-UY",
+        advancedFraudPrevention: false
+    });
+    fields = mp.fields;
+
+    // Estilos internos del Iframe para coincidir con tu CSS
     const style = {
       base: {
-        color: '#0f172a',
-        fontSize: '13px',
-        letterSpacing: '0.4px',
-        '::placeholder': {
-          color: '#94a3b8'
-        }
+        color: "#0f172a",
+        fontSize: "16px",
+        fontFamily: "'Manrope', sans-serif",
+        "::placeholder": { color: "#94a3b8" },
+      },
+      invalid: {
+        color: "#dc2626"
       }
     };
-    
-    // Crear campos individualmente
-    cardNumberField = fields.create("cardNumber", { 
-      placeholder: "0000 0000 0000 0000",
-      style: style
-    });
+
+    // Crear campos
+    cardNumberField = fields.create("cardNumber", { placeholder: "0000 0000 0000 0000", style });
+    expMonthField = fields.create("expirationMonth", { placeholder: "MM", style });
+    expYearField = fields.create("expirationYear", { placeholder: "AA", style });
+    cvcField = fields.create("securityCode", { placeholder: "123", style });
+
+    // Montar en los DIVs del HTML
     cardNumberField.mount("mp-card-number");
-    
-    expMonthField = fields.create("expirationMonth", { 
-      placeholder: "MM",
-      style: style
-    });
     expMonthField.mount("mp-exp-month");
-    
-    expYearField = fields.create("expirationYear", { 
-      placeholder: "AA",
-      style: style
-    });
     expYearField.mount("mp-exp-year");
-    
-    cvcField = fields.create("securityCode", { 
-      placeholder: "CVC",
-      style: style
-    });
     cvcField.mount("mp-cvc");
-    
-    console.log("Campos montados exitosamente");
-    
-  } catch (err) {
-    console.error("Error en initSecureFields:", err);
-    throw new Error(`Error inicializando campos: ${err.message}`);
+
+  } catch (e) {
+    console.error("Error MP init", e);
+    subscriptionError.value = "Error cargando formulario de pago.";
   }
 }
 
 async function createCardToken() {
-  return new Promise((resolve, reject) => {
-    if (!fields) {
-      reject(new Error("Campos no inicializados"));
-      return;
-    }
-    
-    // Validar datos básicos antes de intentar tokenizar
-    if (!cardholderName.value.trim()) {
-      reject(new Error("Ingrese el nombre del titular"));
-      return;
-    }
-    
-    if (!identificationNumber.value.trim()) {
-      reject(new Error("Ingrese el número de documento"));
-      return;
-    }
-    
-    const tokenParams = {
-      cardholderName: cardholderName.value.trim(),
-      identificationType: identificationType.value,
-      identificationNumber: identificationNumber.value,
-    };
+  if (!fields) throw new Error("El formulario de pago no está listo.");
+  
+  if (!payerEmail.value) throw new Error("El email es obligatorio");
+  
+  const tokenParams = {
+    cardholderName: cardholderName.value.trim(),
+    identificationType: identificationType.value,
+    identificationNumber: identificationNumber.value,
+  };
 
-    fields.createCardToken(tokenParams)
-      .then(tokenResp => {
-        if (tokenResp.error) return reject(tokenResp.error);
-        console.log("Token creado:", JSON.stringify(tokenResp));
-        resolve(tokenResp.id);
-      })
-      .catch(reject);
-  });
+  const tokenResp = await fields.createCardToken(tokenParams);
+  
+  if (tokenResp.error) {
+      // Manejo de errores comunes de MP
+      const msg = tokenResp.error.message || "Revisa los datos de la tarjeta";
+      throw new Error(msg);
+  }
+  
+  return tokenResp;
 }
 
-async function onAddCard() {
-  error.value = "";
-  success.value = "";
-  loading.value = true;
+// --- SUBMIT ---
+async function submitSubscription() {
+  subscriptionError.value = "";
+  subscriptionSuccess.value = "";
+  subscribing.value = true;
 
   try {
-    console.log("Iniciando proceso de agregar tarjeta...");
-    
-    // 1) Tokenizar tarjeta
-    const cardToken = await createCardToken();
-    console.log("Token obtenido, longitud:", cardToken.length);
-    
-    // Parsear nombre para first_name y last_name
-    const nameParts = cardholderName.value.trim().split(" ");
-    const firstName = nameParts[0] || "Cliente";
-    const lastName = nameParts.slice(1).join(" ") || "Usuario";
-    
-    // 2) Preparar datos para backend
-    const requestData = {
+    // 1. Tokenizar tarjeta
+    const tokenResp = await createCardToken();
+    const cardToken = tokenResp.id;
+
+    // 2. Preparar payload
+    const parts = cardholderName.value.trim().split(" ");
+    const first = parts[0] || "Cliente";
+    const last = parts.slice(1).join(" ") || "Usuario";
+
+    const payload = {
       mp_card_token: cardToken,
+      plan_type: selectedPlan.value, // 'monthly' o 'annual'
       payer: {
-        first_name: firstName,
-        last_name: lastName,
+        email: payerEmail.value.trim(),
+        first_name: first,
+        last_name: last,
         doc_type: identificationType.value,
-        doc_number: identificationNumber.value,
+        doc_number: identificationNumber.value
       }
     };
+
+    // 3. Enviar a tu API Backend
+    const resp = await subscribeCheckout(externalReference, payload);
     
-    console.log("Enviando al backend:", {
-      ...requestData,
-      mp_card_token: `${cardToken.substring(0, 15)}...` // Solo mostrar parte del token
-    });
-    
-    // 3) Enviar al backend
-    const base = import.meta.env.VITE_API_BASE_URL;
-    const endpoint = `${base}/checkout/${encodeURIComponent(external_reference)}/add_cards`;
-    
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      },
-      body: JSON.stringify(requestData)
-    });
-    
-    const result = await response.json();
-    console.log("Respuesta del backend:", result);
-    
-    if (!response.ok) {
-      // Manejar error específico de MP
-      if (result.mp_error?.includes("payment method response is empty")) {
-        throw new Error("Token de tarjeta inválido o expirado. Intente nuevamente.");
-      }
-      throw new Error(result.error || result.message || `Error ${response.status}`);
+    // Validar respuesta del backend
+    if (!resp || (!resp.ok && !resp.success)) {
+      throw new Error(resp?.error || resp?.message || "Error al procesar suscripción");
     }
+
+    // 4. Éxito
+    subscriptionSuccess.value = "¡Suscripción exitosa! Redirigiendo...";
     
-    if (!result.success) {
-      throw new Error(result.message || "No se pudo guardar la tarjeta");
-    }
-    
-    // 4) Éxito - mostrar mensaje y redirigir
-    success.value = "✅ Tarjeta agregada exitosamente! Redirigiendo...";
-    
-    // Esperar 2 segundos antes de redirigir
     setTimeout(() => {
-      router.push({ 
-        name: "checkout", 
-        params: { external_reference },
-        query: { 
-          card_added: 'true',
-          customer_id: result.customer_id,
-          card_id: result.card_id 
-        }
-      });
+        // router.push({ name: 'success_page' }); 
+        console.log("Redirigiendo...");
     }, 2000);
-    
+
   } catch (e) {
-    console.error("Error en onAddCard:", e);
-    
-    // Mensajes de error amigables
-    if (e.message.includes("token") || e.message.includes("Token")) {
-      error.value = "Error al procesar la tarjeta. Verifique que los datos sean correctos.";
-    } else if (e.message.includes("expired") || e.message.includes("expirado")) {
-      error.value = "El token de la tarjeta expiró. Por favor, complete el formulario nuevamente.";
-    } else {
-      error.value = e.message || "Error inesperado al agregar tarjeta";
-    }
+    console.error(e);
+    subscriptionError.value = e.message || "Error desconocido";
   } finally {
-    loading.value = false;
+    subscribing.value = false;
   }
 }
 
-// Limpiar al desmontar
-onUnmounted(() => {
-  if (cardNumberField) cardNumberField.unmount?.();
-  if (expMonthField) expMonthField.unmount?.();
-  if (expYearField) expYearField.unmount?.();
-  if (cvcField) cvcField.unmount?.();
+// --- LIFECYCLE ---
+onMounted(async () => {
+  await initSecureFields();
 });
 
-onMounted(async () => {
-  try {
-    const checkout = await fetchCheckout();
-
-    if (!checkout?.mp_public_key) {
-      error.value = "Falta mp_public_key en el checkout";
-      return;
-    }
-
-    await initSecureFields(checkout.mp_public_key, checkout.mp_locale);
-    
-    // Si hay datos en el checkout, prellenar
-    if (checkout.full_name) {
-      cardholderName.value = checkout.full_name;
-    }
-    
-    // Para desarrollo: mostrar ayuda
-    if (import.meta.env.DEV) {
-      console.log("Modo desarrollo activo");
-      console.log("Tarjeta de prueba: 4509 9535 6623 3704");
-      console.log("Fecha: 11/25 - CVC: 123");
-    }
-    
-  } catch (e) {
-    console.error("Error en mounted:", e);
-    error.value = e?.message || "Error inicializando formulario";
-    
-    // Mensaje específico para error de fields
-    if (e.message.includes("fields")) {
-      error.value = "Error cargando formulario de pago. Recargue la página.";
-    }
-  }
+onUnmounted(() => {
+  if(cardNumberField) cardNumberField.unmount();
+  if(expMonthField) expMonthField.unmount();
+  if(expYearField) expYearField.unmount();
+  if(cvcField) cvcField.unmount();
+  fields = null;
+  mp = null;
 });
 </script>
 
 <style scoped>
-.wrap{max-width:900px;margin:0 auto;padding:18px}
-.header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px;gap:12px}
-.card{border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#fff;margin-bottom:14px}
-.card-title{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
-.grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
-.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
-.field{display:flex;flex-direction:column;gap:6px}
-label{font-size:13px;color:#334155;font-weight:500}
-input,select{
-  border:1px solid #e5e7eb;
-  border-radius:12px;
-  padding:10px 12px;
-  font-size:14px;
-  outline:none;
-  transition:border-color 0.2s;
-  background:#fff;
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap');
+
+.page-wrapper {
+  background: radial-gradient(1200px 600px at 10% -10%, #e7f0ff 0%, #f6f7fb 55%, #f8fafc 100%);
+  font-family: 'Manrope', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  color: #0f172a;
 }
-input:focus,select:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.1)}
-input:disabled,select:disabled{background:#f8fafc;cursor:not-allowed}
-.mp-field{
-  border:1px solid #e5e7eb;
-  border-radius:12px;
-  padding:8px 10px;
-  min-height:36px;
-  height:36px;
-  display:flex;
-  align-items:center;
-  background:#fff;
-  transition:border-color 0.2s;
+
+.payment-container {
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  padding: 2rem;
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: relative; /* Para el overlay */
 }
-.mp-field iframe{height:34px !important;}
-.mp-field.compact{padding:8px 12px;font-size:12px;min-height:36px;height:36px}
-.mp-field.mini{padding:6px 10px;font-size:12px;min-height:34px;height:34px}
-.mp-field:focus-within{
-  border-color:#3b82f6;
-  box-shadow:0 0 0 2px rgba(59,130,246,0.1);
+
+/* Header */
+.header-section {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
 }
-.actions{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  margin-top:14px;
-  flex-wrap:wrap;
-  padding-top:16px;
-  border-top:1px solid #f1f5f9;
+.logo img {
+  max-width: 100px;
 }
-.btn{
-  border:none;
-  background:#3b82f6;
-  color:#fff;
-  border-radius:12px;
-  padding:10px 14px;
-  cursor:pointer;
-  font-weight:500;
-  transition:background-color 0.2s;
+.product-details {
+  text-align: right;
 }
-.btn:hover{background:#2563eb}
-.btn:disabled{opacity:.6;cursor:not-allowed;background:#94a3b8}
-.secondary{background:#fff;color:#64748b;border:1px solid #e5e7eb}
-.secondary:hover{background:#f8fafc;border-color:#cbd5e1}
-.muted{color:#64748b;font-size:13px}
-.small{font-size:12px}
-.error{
-  margin-top:12px;
-  background:#fee2e2;
-  border:1px solid #fecaca;
-  color:#7f1d1d;
-  padding:12px;
-  border-radius:12px;
-  font-size:14px;
+.payment-type {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
 }
-.success{
-  margin-top:12px;
-  background:#dcfce7;
-  border:1px solid #bbf7d0;
-  color:#166534;
-  padding:12px;
-  border-radius:12px;
-  font-size:14px;
+.product-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
 }
-@media (max-width: 900px){
-  .grid{grid-template-columns:1fr}
-  .row3{grid-template-columns:repeat(3, 1fr)}
-  .header{flex-direction:column;align-items:flex-start;gap:16px}
-  .actions{flex-direction:column;align-items:stretch;gap:12px}
-  .btn{width:100%;text-align:center}
+.product-price {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #009ee3;
+}
+
+.section-title {
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 0.8rem;
+  color: #334155;
+}
+
+/* Opciones de Plan (estilo Card) */
+.card-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.card-option {
+  display: grid;
+  grid-template-columns: 24px 36px 1fr;
+  align-items: center;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  gap: 0.8rem;
+  transition: all 0.2s;
+}
+.card-option:hover {
+  background: #e7f3ff;
+}
+.card-option.selected {
+  background: #e0edff;
+  border-color: #60a5fa;
+  box-shadow: 0 4px 12px rgba(96,165,250,0.15);
+}
+.card-option input[type=radio] {
+  accent-color: #009ee3;
+  margin: 0;
+}
+.card-icon {
+  font-size: 1.2rem;
+  display: flex;
+  justify-content: center;
+}
+.card-details {
+  display: flex;
+  flex-direction: column;
+}
+.card-label {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #0f172a;
+}
+.card-sub {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+/* Formulario */
+.add-card {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 1.5rem;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 2 columnas */
+  gap: 1rem;
+}
+.full-width {
+  grid-column: span 2;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.input-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+.input-group input, 
+.input-group select {
+  padding: 0.7rem;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #f8fafc;
+  font-size: 0.95rem;
+  font-family: inherit;
+  width: 100%;
+}
+
+/* Estilo específico para los contenedores de MP para que parezcan inputs */
+.mp-container {
+  height: 42px; /* Altura similar al input */
+  padding: 0 10px; /* Padding interno para el iframe */
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #f8fafc;
+  display: flex;
+  align-items: center; /* Centrar verticalmente el iframe */
+  width: 100%;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+}
+
+input:disabled, select:disabled {
+  background: #e2e8f0;
+  cursor: not-allowed;
+}
+
+/* Botón */
+.pay-btn {
+  margin-top: 1rem;
+  background: #009ee3;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.2s;
+}
+.pay-btn:hover:not(:disabled) {
+  background: #007bb8;
+}
+.pay-btn:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* Feedback */
+.result-message {
+  text-align: center;
+  font-size: 0.95rem;
+  padding: 0.8rem;
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+.result-success {
+  background: #e6f9f0;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.result-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.footer {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-top: 1rem;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255,255,255,0.85);
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  font-size: 1.2rem;
+  color: #009ee3;
+  font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .payment-container {
+    padding: 1.5rem;
+  }
+  .form-grid {
+    grid-template-columns: 1fr; /* 1 columna en móvil */
+  }
+  .full-width {
+    grid-column: span 1;
+  }
 }
 </style>
