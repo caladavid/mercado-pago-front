@@ -1,16 +1,22 @@
 :root {
-  font-family: "Segoe UI Variable", "Inter", system-ui, -apple-system, sans-serif;
+/*   font-family: "Segoe UI Variable", "Inter", system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color: #0f172a;
   background: radial-gradient(circle at 20% 20%, #f5f8ff, #eef2ff), linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
   text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: antialiased; */
+
+  --color-primary: #0033a0;
+  --color-secondary: #ff9900;
+  --color-gray: rgb(211, 213, 215);
+  --color-dark-gray: rgb(29, 41, 61);
 }
 
-* { box-sizing: border-box; }
 
-body {
+/* * { box-sizing: border-box; } */
+
+/* body {
   margin: 0;
   min-height: 100vh;
   background: transparent;
@@ -21,3 +27,4 @@ a { color: inherit; text-decoration: none; }
 button {
   font-family: inherit;
 }
+ */

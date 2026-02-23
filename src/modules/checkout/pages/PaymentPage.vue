@@ -130,6 +130,7 @@
             </div>
 
             <button class="btn-submit" @click="submitWithSavedCard" :disabled="paying">
+              <span v-if="paying" class="spinner"></span>
               {{ paying ? 'Procesando...' : `Pagar con tarjeta guardada` }}
             </button>
           </div>
@@ -161,12 +162,20 @@
                 </div>
             </div>
 
-            <div class="checkbox-group">
+            <div 
+              v-if="store.checkout.type !== 'subscription'"
+              class="checkbox-group"
+            >
               <input type="checkbox" id="save-info" v-model="saveInfo">
               <label for="save-info">Guardar tarjeta para futuros pagos</label>
             </div>
 
+            <div v-else class="disclaimer">
+              <p>Al ser una suscripción, tu tarjeta se guardará de forma segura para los próximos cobros.</p>
+            </div>
+
             <button class="btn-submit" @click="submitWithNewCard" :disabled="paying">
+              <span v-if="paying" class="spinner"></span>
               {{ paying ? 'Procesando...' : 'Pagar Ahora' }}
             </button>
           </div>
@@ -251,8 +260,37 @@ async function initSecureFields() {
   if (fields) return;
   try {
     await loadMercadoPago();
-    const pk = store.checkout?.mp_public_key || import.meta.env.VITE_MP_PUBLIC_KEY;
-    mp = new window.MercadoPago(pk.trim(), { locale: "es-UY" });
+    /* const pk = store.checkout?.mp_public_key || import.meta.env.VITE_MP_PUBLIC_KEY; */
+
+    const pk = store.checkout?.mp_public_key; 
+
+    if (mp && currentPk !== pk) {
+      console.log("🔄 Detectado cambio de contexto (Pago <-> Sub), reiniciando SDK...");
+      // Destruir campos anteriores si es necesario
+      fields = null;
+      mp = null; 
+  }
+
+    console.log("%c🛡️ CONFIGURACIÓN MERCADO PAGO", "color: white; background: #013a2f; padding: 4px; border-radius: 4px;");
+    console.log("👉 Llave recibida del Backend:", pk);
+    console.log("👉 Tipo de operación:", store.checkout?.type);
+
+    if (!pk) {
+      console.warn("⚠️ No se encontró Public Key en la orden. Usando fallback del env.");
+    }
+
+    // Inicializamos con la llave que el backend seleccionó específicamente para esta orden
+    mp = new window.MercadoPago(pk || import.meta.env.VITE_MP_PUBLIC_KEY, { 
+      locale: "es-UY" 
+    });
+
+/*     mp = new window.MercadoPago(pk || import.meta.env.VITE_MP_PUBLIC_KEY, { 
+      locale: "es-UY" 
+    }); */
+
+    const customerId = store.checkout?.mp_customer_id;
+
+    /* mp = new window.MercadoPago(pk.trim(), { locale: "es-UY" }); */
     fields = mp.fields;
     const style = { color: "#1f2937", fontSize: "15px", fontFamily: "'Inter', sans-serif", "::placeholder": { color: "#9ca3af" } };
     cardNumberField = fields.create("cardNumber", { placeholder: "0000 0000 0000 0000", style });
@@ -288,10 +326,21 @@ async function removeCard(cardId) {
       isAddingNewCard.value = true;
       nextTick(() => initSecureFields());
     }
-  } catch (e) { handleError(e); }
+  } catch (e) { 
+    handleError(e); 
+  }
 }
 
-function goBack() { window.history.back(); }
+function goBack() { 
+  const url = store.checkout?.back_url;
+  console.log("url", url);
+
+  if (url) {
+    window.location.href = url;
+  } else {
+    window.history.back()
+  }
+ }
 
 function getUserFriendlyError(statusDetail) {
   const errorMap = { "cc_rejected_insufficient_amount": "Saldo insuficiente.", "cc_rejected_bad_filled_security_code": "CVC incorrecto." };
@@ -306,6 +355,7 @@ async function submitWithSavedCard() {
     const payload = {
       card_id: store.selectedCardId,
       token: store.selectedCardId,
+      
       security_code: selectedCardCvv.value,
       save_card: false,
       payer: { email: payerEmail.value, first_name: cardholderName.value.split(" ")[0] },
@@ -324,43 +374,91 @@ async function submitWithNewCard() {
   }
   startPayment();
   try {
+    // --- PASO 1: CREAR EL TOKEN DE PAGO ---
     const tokenRespPago = await fields.createCardToken({
       cardholderName: cardholderName.value,
       identificationType: identificationType.value,
       identificationNumber: identificationNumber.value
     });
 
-    let tokenRespRegistro = null;
-    if (saveInfo.value) {
-      // Generar token exclusivo para GUARDAR la tarjeta
-      tokenRespRegistro = await fields.createCardToken({
-        cardholderName: cardholderName.value,
-        identificationType: identificationType.value,
-        identificationNumber: identificationNumber.value
-      });
-}
-
     if (tokenRespPago.error) throw new Error(tokenRespPago.error.message);
-    if (tokenRespRegistro.error) throw new Error(tokenRespRegistro.error.message);
 
-    // --- MEJORA: DETECCIÓN ROBUSTA DEL MÉTODO ---
+    // --- PASO 2: DETECTAR EL MÉTODO ---
     const bin = tokenRespPago.first_six_digits;
-    let detectedMethod = tokenRespPago.payment_method_id || tokenRespPago.payment_method?.id;
+    // Aquí obtenemos el método real que detectó el SDK (ej: 'debvisa' o 'visa')
+    let detectedMethod = tokenRespPago.payment_method_id;
 
-    // Si el SDK falla en devolver el ID, lo forzamos por BIN (Plan B anti-error 128)
     if (!detectedMethod && bin) {
+        try {
+            const results = await mp.getPaymentMethods({ bin });
+            // La respuesta puede variar según versión, suele ser un array o un objeto con results
+            const methods = results.results || results; 
+            if (methods && methods.length > 0) {
+                detectedMethod = methods[0].id;
+            }
+        } catch (e) {
+            console.warn("⚠️ No se pudo obtener método por API, usando fallback local.");
+        }
+    }
+
+    // 🔥 FALLBACK MANUAL (Si la API falla o para forzar Uruguay)
+    if (!detectedMethod) {
         if (bin.startsWith('4')) detectedMethod = 'visa';
         else if (bin.startsWith('5')) detectedMethod = 'master';
-        else if (bin.startsWith('3')) detectedMethod = 'amex';
+        else if (bin.startsWith('3')) detectedMethod = 'amex'; // Ejemplo
     }
-    // --------------------------------------------
+    
+    console.log(`✅ Método Detectado: ${detectedMethod} | BIN: ${bin}`);
+
+    let tokenRespRegistro = null;
+    const mp_registration_token = ref(""); // Aseguramos que tenga donde guardarse
+
+    // --- PASO 3: CREAR EL TOKEN DE REGISTRO (SOLO SI saveInfo ES TRUE) ---
+    if (saveInfo.value) {
+        try {
+            // NORMALIZACIÓN PARA EVITAR EL ERROR 128:
+            // Para el registro (storage), MP prefiere marcas raíz ('visa' o 'mastercard')
+            const storageMethod = detectedMethod?.includes('visa') ? 'visa' : 
+                                 (detectedMethod?.includes('master') ? 'mastercard' : 'visa');
+
+            const tokenParams = {
+                cardholderName: cardholderName.value,
+                identificationType: identificationType.value,
+                identificationNumber: identificationNumber.value,
+                paymentMethodId: storageMethod // 👈 YA NO DARÁ ERROR DE REFERENCIA
+            };
+
+            console.log("🔍 [DEBUG] Solicitando Token de Registro con:", tokenParams);
+
+            tokenRespRegistro = await fields.createCardToken(tokenParams);
+
+            if (tokenRespRegistro.payment_method_id) {
+                console.log("📊 [ANALISIS] Token de registro generado con éxito:", tokenRespRegistro.payment_method_id);
+            } else {
+                console.warn("⚠️ ALERTA: El token de registro no tiene ID de método.");
+            }
+        } catch (e) {
+            console.error("❌ Error en el SDK al crear token de registro:", e);
+        }
+    }
+
+    // --- PASO 4: REFINAR ID PARA EL BACKEND (URUGUAY) ---
+    /* let realMethodId = detectedMethod;
+    if (!realMethodId || realMethodId === 'visa') {
+        if (bin === '421301') realMethodId = 'debvisa';
+        else if (bin.startsWith('4')) realMethodId = 'visa';
+    } */
 
     const parts = cardholderName.value.trim().split(" ");
     
+    // --- PASO 5: PREPARAR EL PAYLOAD FINAL ---
     const payload = {
       mp_card_token: tokenRespPago.id, 
-      mp_registration_token: saveInfo.value ? tokenRespRegistro.id : undefined,
+      // Si se generó el de registro, lo mandamos
+      mp_registration_token: (saveInfo.value && tokenRespRegistro) ? tokenRespRegistro.id : undefined,
+      payment_method_id: detectedMethod,
       save_card: saveInfo.value,
+      /* action: 'save_only', */
       installments: installments.value,
       bin: bin,
       idempotency_key: self.crypto.randomUUID(),
@@ -375,26 +473,13 @@ async function submitWithNewCard() {
       }
     };
 
-    cardNumberField.on('error', e => console.error('Error cardNumber:', e));
-
-    console.log("🚀 Enviando datos con método:", detectedMethod);
-
+    console.log("🚀 Enviando al Backend:", payload.payment_method_id);
     const resp = await payCheckout(externalReference.value, payload);
-
-    if (resp.ok) {
-        paymentSuccess.value = "¡Pago procesado y tarjeta guardada con éxito!";
-    }
-
-    if (resp.payment?.status === "rejected") {
-        paymentError.value = getUserFriendlyError(resp.payment.status_detail);
-        return; 
-    }
-
     handleResponse(resp);
+
   } catch (e) { 
     handleError(e); 
-  } 
-  finally { 
+  } finally { 
     paying.value = false; 
   }
 }
@@ -404,22 +489,46 @@ function startPayment() { paying.value = true; paymentError.value = ""; paymentS
 function handleResponse(resp) {
   if (!resp?.ok) throw new Error(resp?.error || "Error al procesar pago");
   paymentSuccess.value = "¡Pago exitoso! Redirigiendo...";
-  /* setTimeout(() => { window.location.href = resp.back_url || store.checkout?.back_url; }, 2500); */
+  setTimeout(() => { 
+    window.location.href = resp.back_url || store.checkout?.back_url; 
+  }, 2500);
 }
 
-function handleError(e) { paymentError.value = e.response?.data?.error || e.message || "Error inesperado."; }
+function handleError(e) {
+  const code = e.response?.data?.code;
+  
+  const messages = {
+     "205": "Ingresa el número de tu tarjeta.",
+     "208": "Elige un mes de expiración.",
+     "209": "Elige un año de expiración.",
+     "212": "Ingresa tu tipo de documento.",
+     "213": "Ingresa tu número de documento.",
+     "214": "Ingresa tu número de documento.",
+     "220": "Ingresa tu banco emisor.",
+     "221": "Ingresa el nombre y apellido.",
+     "224": "Ingresa el código de seguridad.",
+     "E301": "Hay un error con este número de tarjeta. Escribe uno nuevo.",
+     "E302": "Revisa el código de seguridad.",
+     "cc_rejected_insufficient_amount": "Tu tarjeta no tiene fondos suficientes.",
+     "cc_rejected_bad_filled_security_code": "Revisa el código de seguridad.",
+     "cc_rejected_call_for_authorize": "Debes autorizar el pago con tu banco."
+  };
+
+  paymentError.value = messages[code] || e.response?.data?.error || "Ocurrió un error inesperado.";
+}
+
 </script>
 
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* === LAYOUT === */
-.checkout-layout { display: flex; min-height: 100vh; font-family: 'Inter', sans-serif; width: 100%; }
+.checkout-layout { display: flex; min-height: 98vh; font-family: 'Inter', sans-serif; width: 100%; }
 
-/* === IZQUIERDA (VERDE) === */
+/* === IZQUIERDA (AZUL) === */
 .summary-panel {
   flex: 1;
-  background-color: #013a2f; 
+  background-color: #0033a0; 
   color: #ffffff;
   padding: 60px;
   display: flex; flex-direction: column; justify-content: center;
@@ -459,7 +568,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: #374151; margi
 .mb-label { display: block; font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 12px; }
 
 .input-clean { width: 100%; padding: 14px 16px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 15px; outline: none; transition: border-color 0.2s; background: #fff; color: #1f2937; }
-.input-clean:focus { border-color: #013a2f; box-shadow: 0 0 0 3px rgba(1, 58, 47, 0.05); }
+.input-clean:focus { border-color: #0033a0; box-shadow: 0 0 0 3px rgba(0, 51, 160, 0.1); } 
 .input-clean:disabled { background-color: #f9fafb; color: #9ca3af; cursor: not-allowed; }
 
 /* Corrección altura iframe MP */
@@ -469,23 +578,29 @@ label { display: block; font-size: 13px; font-weight: 600; color: #374151; margi
 .saved-cards-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
 .saved-card-item { display: flex; align-items: center; padding: 16px; border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer; transition: all 0.2s; background: white; }
 .saved-card-item:hover { background-color: #f9fafb; border-color: #d1d5db; }
-.saved-card-item.selected { border-color: #013a2f; background-color: #f0fdf9; box-shadow: 0 0 0 1px #013a2f; }
+
+/* CAMBIADO: Selección de tarjeta a Azul y fondo azul muy claro */
+.saved-card-item.selected { 
+  border-color: #0033a0; 
+  background-color: #eef2ff; 
+  box-shadow: 0 0 0 1px #0033a0; 
+}
 
 .card-info { flex: 1; display: flex; gap: 10px; font-weight: 500; color: #374151; }
 .card-brand { font-weight: 700; font-size: 13px; text-transform: uppercase; }
 .delete-btn { background: none; border: none; color: #ef4444; font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 8px; }
 
-.add-new-trigger { color: #013a2f; font-weight: 600; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 25px; padding: 10px 0; }
+.add-new-trigger { color: #0033a0; font-weight: 600; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 25px; padding: 10px 0; }
 .link-back { color: #6b7280; font-size: 13px; cursor: pointer; margin-bottom: 20px; display: inline-block; font-weight: 500; }
 
 .split-group { display: flex; gap: 15px; }
 .half { flex: 1; }
 .checkbox-group { display: flex; gap: 12px; margin-bottom: 30px; align-items: flex-start; }
 .checkbox-group label { font-size: 13px; color: #4b5563; cursor: pointer; }
-.checkbox-group input { accent-color: #013a2f; width: 18px; height: 18px; margin-top: 2px; cursor: pointer; }
+.checkbox-group input { accent-color: #0033a0; width: 18px; height: 18px; margin-top: 2px; cursor: pointer; }
 
-.btn-submit { width: 100%; background-color: #013a2f; color: white; padding: 18px; border-radius: 8px; font-size: 16px; font-weight: 600; border: none; cursor: pointer; transition: background 0.2s; margin-top: 10px; }
-.btn-submit:hover:not(:disabled) { background-color: #024d3d; }
+.btn-submit { width: 100%; background-color: #0033a0; color: white; padding: 18px; border-radius: 8px; font-size: 16px; font-weight: 600; border: none; cursor: pointer; transition: background 0.2s; margin-top: 10px; }
+.btn-submit:hover:not(:disabled) { background-color: #00267a; }
 .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; filter: grayscale(1); }
 
 .result-message { padding: 15px; border-radius: 8px; margin-top: 20px; font-size: 14px; text-align: center; }
@@ -497,14 +612,43 @@ label { display: block; font-size: 13px; font-weight: 600; color: #374151; margi
 .cvv-request {
   margin-right: 10px;
 }
+
 .input-cvv-small {
   width: 60px;
   padding: 8px;
-  border: 1px solid #013a2f;
+  border: 1px solid #0033a0;
   border-radius: 4px;
   text-align: center;
   font-weight: bold;
   font-size: 14px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Ajuste opcional para el botón cuando está cargando */
+.btn-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.info-note{
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {
