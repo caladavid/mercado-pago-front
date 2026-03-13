@@ -21,7 +21,7 @@
               {{ store.checkout.currency || store.checkout.item?.currency || store.checkout.items?.[0]?.currency || '$' }}
             </span>
             <span class="amount">
-              {{ store.checkout.total_amount || store.checkout.amount || store.checkout.price || store.checkout.item?.amount || store.checkout.items?.[0]?.unit_price }}
+              {{ formatPago(store.checkout.total_amount || store.checkout.amount || store.checkout.price || store.checkout.item?.amount || store.checkout.items?.[0]?.unit_price) }}
             </span>
             <span class="period" v-if="store.checkout.frequency_label">
               / {{ store.checkout.frequency_label }}
@@ -40,7 +40,7 @@
               <span>Total a pagar:</span>
               <strong>
                   {{ store.checkout.currency || '$' }} 
-                  {{ store.checkout.total_amount || store.checkout.amount || store.checkout.price || store.checkout.item?.amount || store.checkout.items?.[0]?.unit_price || '0.00' }}
+                 {{ formatPago(store.checkout.total_amount || store.checkout.amount || store.checkout.price || store.checkout.item?.amount || store.checkout.items?.[0]?.unit_price) }}
               </strong>
             </div>
           </div>
@@ -65,7 +65,7 @@
               type="email" 
               placeholder="cliente@email.com" 
               class="input-clean"
-              :disabled="paying || hasSavedCards" 
+              :disabled="paying" 
             />
           </div>
 
@@ -233,6 +233,10 @@ const canGoToStep2 = computed(() => {
          identificationNumber.value.length > 5;
 });
 
+const formatPago = (value) => {
+  return parseInt(value, 10).toLocaleString('es-CL');
+}
+
 onMounted(async () => {
   await store.load(externalReference.value);
   const buyer = store.checkout?.buyer_prefill || {};
@@ -251,6 +255,7 @@ onUnmounted(() => cleanupFields());
 async function goToStep2() {
   currentStep.value = 2;
   if (isAddingNewCard.value || !hasSavedCards.value) {
+    cleanupFields();
     await nextTick();
     initSecureFields();
   }
@@ -281,7 +286,7 @@ async function initSecureFields() {
 
     // Inicializamos con la llave que el backend seleccionó específicamente para esta orden
     mp = new window.MercadoPago(pk || import.meta.env.VITE_MP_PUBLIC_KEY, { 
-      locale: "es-UY" 
+      locale: import.meta.env.VITE_MP_LOCALE 
     });
 
 /*     mp = new window.MercadoPago(pk || import.meta.env.VITE_MP_PUBLIC_KEY, { 
@@ -305,25 +310,51 @@ async function initSecureFields() {
 }
 
 function cleanupFields() {
-  if(cardNumberField) cardNumberField.unmount();
-  if(expMonthField) expMonthField.unmount();
-  if(expYearField) expYearField.unmount();
-  if(cvcField) cvcField.unmount();
-  fields = null; mp = null;
+  try {
+    if (cardNumberField) {
+      cardNumberField.unmount();
+      cardNumberField = null; 
+    }
+    if (expMonthField) {
+      expMonthField.unmount();
+      expMonthField = null;
+    }
+    if (expYearField) {
+      expYearField.unmount();
+      expYearField = null;
+    }
+    if (cvcField) {
+      cvcField.unmount();
+      cvcField = null;
+    }
+  } catch (e) {
+    console.warn("Ignorando campos que ya estaban desmontados...", e);
+  }
+  
+  fields = null; 
+  mp = null;
 }
 
 function toggleNewCardMode() {
   isAddingNewCard.value = !isAddingNewCard.value;
-  if (isAddingNewCard.value) nextTick(() => initSecureFields());
+  if (isAddingNewCard.value) {
+    cleanupFields();
+    nextTick(() => initSecureFields());
+  } else {
+    cleanupFields();
+  }
 }
 
 async function removeCard(cardId) {
   if(!confirm("¿Deseas eliminar esta tarjeta?")) return;
+
   try {
     await deleteCheckoutCard(externalReference.value, cardId);
+
     store.cards = store.cards.filter(c => c.id !== cardId);
     if (store.cards.length === 0) {
       isAddingNewCard.value = true;
+      cleanupFields()
       nextTick(() => initSecureFields());
     }
   } catch (e) { 
@@ -337,34 +368,62 @@ function goBack() {
 
   if (url) {
     window.location.href = url;
-  } else {
-    window.history.back()
   }
  }
 
-function getUserFriendlyError(statusDetail) {
-  const errorMap = { "cc_rejected_insufficient_amount": "Saldo insuficiente.", "cc_rejected_bad_filled_security_code": "CVC incorrecto." };
-  return errorMap[statusDetail] || "Hubo un error al procesar el pago.";
-}
 
 async function submitWithSavedCard() {
   if (!store.selectedCardId || selectedCardCvv.value.length < 3) return alert("Ingresa el CVC.");
   startPayment();
+
   try {
+    if (!mp) {
+      await loadMercadoPago();
+      const pk = store.checkout?.mp_public_key || import.meta.env.VITE_MP_PUBLIC_KEY;
+      mp = new window.MercadoPago(pk, { locale: "es-UY" });
+    }
+
+    console.log("🔍 Generando token tradicional para Card ID:", store.selectedCardId);
+
+    const tokenResponse = await mp.createCardToken({
+      cardId: store.selectedCardId,
+      securityCode: selectedCardCvv.value
+    })
+
+    if (tokenResponse.error) {
+      throw new Error("El código de seguridad (CVC) es incorrecto o la tarjeta expiró.");
+    }
+
     const isSub = store.checkout.type === "subscription" || !!store.checkout.preapproval_plan_id;
+    const selectedCard = store.cards.find(c => c.id === store.selectedCardId);
+    const methodId = selectedCard?.payment_method?.id
+
     const payload = {
+      mp_card_token: tokenResponse.id,
       card_id: store.selectedCardId,
-      token: store.selectedCardId,
-      
+      payment_method_id: methodId,
+      /* token: store.selectedCardId, */
       security_code: selectedCardCvv.value,
+      issuer_id: selectedCard?.issuer?.id,
       save_card: false,
-      payer: { email: payerEmail.value, first_name: cardholderName.value.split(" ")[0] },
+      payer: { 
+        email: payerEmail.value, 
+        first_name: cardholderName.value.split(" ")[0] 
+      },
       idempotency_key: self.crypto.randomUUID(),
       type: isSub ? 'subscription' : 'payment',
     };
     const resp = await payCheckout(externalReference.value, payload);
     handleResponse(resp);
-  } catch (e) { handleError(e); } finally { paying.value = false; }
+
+  } catch (e) { 
+    handleError(e); 
+
+  } finally { 
+    paying.value = false; 
+    selectedCardCvv.value = "";
+  }
+
 }
 
 async function submitWithNewCard() {
@@ -375,11 +434,18 @@ async function submitWithNewCard() {
   startPayment();
   try {
     // --- PASO 1: CREAR EL TOKEN DE PAGO ---
-    const tokenRespPago = await fields.createCardToken({
-      cardholderName: cardholderName.value,
+    const tokenParams = {
+      cardholderName: cardholderName.value.trim(),
       identificationType: identificationType.value,
       identificationNumber: identificationNumber.value
-    });
+    }
+
+    const tokenRespPago = await fields.createCardToken(tokenParams);
+    /* const tokenRespPago = await fields.createCardToken({
+      cardholderName: cardholderName.value.trim(),
+      identificationType: identificationType.value,
+      identificationNumber: identificationNumber.value
+    }); */
 
     if (tokenRespPago.error) throw new Error(tokenRespPago.error.message);
 
@@ -401,7 +467,6 @@ async function submitWithNewCard() {
         }
     }
 
-    // 🔥 FALLBACK MANUAL (Si la API falla o para forzar Uruguay)
     if (!detectedMethod) {
         if (bin.startsWith('4')) detectedMethod = 'visa';
         else if (bin.startsWith('5')) detectedMethod = 'master';
@@ -425,7 +490,7 @@ async function submitWithNewCard() {
                 cardholderName: cardholderName.value,
                 identificationType: identificationType.value,
                 identificationNumber: identificationNumber.value,
-                paymentMethodId: storageMethod // 👈 YA NO DARÁ ERROR DE REFERENCIA
+                paymentMethodId: storageMethod 
             };
 
             console.log("🔍 [DEBUG] Solicitando Token de Registro con:", tokenParams);
@@ -441,13 +506,6 @@ async function submitWithNewCard() {
             console.error("❌ Error en el SDK al crear token de registro:", e);
         }
     }
-
-    // --- PASO 4: REFINAR ID PARA EL BACKEND (URUGUAY) ---
-    /* let realMethodId = detectedMethod;
-    if (!realMethodId || realMethodId === 'visa') {
-        if (bin === '421301') realMethodId = 'debvisa';
-        else if (bin.startsWith('4')) realMethodId = 'visa';
-    } */
 
     const parts = cardholderName.value.trim().split(" ");
     
@@ -475,6 +533,7 @@ async function submitWithNewCard() {
 
     console.log("🚀 Enviando al Backend:", payload.payment_method_id);
     const resp = await payCheckout(externalReference.value, payload);
+    console.log("resp", resp);
     handleResponse(resp);
 
   } catch (e) { 
@@ -487,34 +546,82 @@ async function submitWithNewCard() {
 function startPayment() { paying.value = true; paymentError.value = ""; paymentSuccess.value = ""; }
 
 function handleResponse(resp) {
-  if (!resp?.ok) throw new Error(resp?.error || "Error al procesar pago");
+  if (!resp?.ok) {
+    throw { 
+      response: { 
+        data: resp 
+      } 
+    };
+  }
+
+  console.log("✅ Pago exitoso, respuesta:", resp);
+
   paymentSuccess.value = "¡Pago exitoso! Redirigiendo...";
-  setTimeout(() => { 
-    window.location.href = resp.back_url || store.checkout?.back_url; 
-  }, 2500);
+
+  const url = store.checkout?.back_url;
+  console.log(url);
+
+  setTimeout(() => {
+      if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ 
+          status: 'PAYMENT_SUCCESS', 
+          payment: resp.payment,
+          back_url: resp.back_url || store.checkout?.back_url,
+          external_reference: resp.payment.external_reference,
+          order_id: store.checkout?.order?.id,
+        }, "*");
+      } else {
+        if (url) {
+          window.location.href = url; 
+        }
+      }
+  }, 0);
+
+  /* if (url) {
+      setTimeout(() => { 
+      window.location.href = resp.back_url || store.checkout?.back_url; 
+    }, 2500);
+  } */
 }
 
 function handleError(e) {
-  const code = e.response?.data?.code;
+  const errorData = e.response?.data || e;
+  const code = errorData?.code || errorData?.status_detail;
+  console.log("handleError", errorData);
   
   const messages = {
-     "205": "Ingresa el número de tu tarjeta.",
-     "208": "Elige un mes de expiración.",
-     "209": "Elige un año de expiración.",
-     "212": "Ingresa tu tipo de documento.",
-     "213": "Ingresa tu número de documento.",
-     "214": "Ingresa tu número de documento.",
-     "220": "Ingresa tu banco emisor.",
-     "221": "Ingresa el nombre y apellido.",
-     "224": "Ingresa el código de seguridad.",
-     "E301": "Hay un error con este número de tarjeta. Escribe uno nuevo.",
-     "E302": "Revisa el código de seguridad.",
-     "cc_rejected_insufficient_amount": "Tu tarjeta no tiene fondos suficientes.",
-     "cc_rejected_bad_filled_security_code": "Revisa el código de seguridad.",
-     "cc_rejected_call_for_authorize": "Debes autorizar el pago con tu banco."
+    // --- Errores de Validación (Campos Vacíos / SDK) ---
+    "205": "Ingresa el número de tu tarjeta.",
+    "208": "Selecciona el mes de expiración.",
+    "209": "Selecciona el año de expiración.",
+    "212": "Selecciona tu tipo de documento.",
+    "213": "Ingresa tu número de documento.",
+    "214": "Ingresa tu número de documento.",
+    "221": "Ingresa el nombre y apellido exactamente como aparece en la tarjeta.",
+    "224": "Ingresa el código de seguridad (CVC).",
+    "E301": "Hay un error con el número de tarjeta. Revisa los dígitos.",
+    "E302": "El código de seguridad (CVC) es incorrecto. Suele estar al reverso.",
+
+    // --- Errores de Integración o Tokens ---
+    "10102": "Por razones de seguridad, necesitamos que vuelvas a ingresar los datos de tu tarjeta.",
+
+    // --- Motivos de Rechazo (El banco o MP dijeron que NO) ---
+    "cc_rejected_insufficient_amount": "Tu tarjeta no tiene fondos suficientes. Por favor, intenta con otro medio de pago.",
+    "cc_rejected_bad_filled_security_code": "El código de seguridad es incorrecto. Revísalo e intenta de nuevo.",
+    "cc_rejected_bad_filled_date": "La fecha de expiración es incorrecta. Revísala e intenta de nuevo.",
+    "cc_rejected_bad_filled_other": "Los datos de la tarjeta son incorrectos. Revísalos e intenta de nuevo.",
+    "cc_rejected_call_for_authorize": "Tu banco requiere autorización. Llama para autorizar el pago a Mercado Pago o usa otra tarjeta.",
+    "cc_rejected_high_risk": "El pago fue rechazado por seguridad. Por favor, intenta con otra tarjeta diferente.",
+    "cc_rejected_card_disabled": "Tu tarjeta parece estar inactiva. Llama a tu banco para activarla o usa otra.",
+    "cc_rejected_invalid_installments": "Esta tarjeta no admite la cantidad de cuotas seleccionada. Elige otra opción.",
+    
+    // --- Agregados clave de Mercado Pago ---
+    "cc_rejected_other_reason": "Tu banco no aprobó el pago. Te recomendamos intentar con otra tarjeta.",
+    "cc_rejected_duplicated_payment": "Ya registramos un pago exacto a este hace unos minutos. Revisa tu email para evitar cobros dobles.",
+    "cc_rejected_max_attempts": "Alcanzaste el límite de intentos permitidos. Intenta más tarde o con otra tarjeta."
   };
 
-  paymentError.value = messages[code] || e.response?.data?.error || "Ocurrió un error inesperado.";
+  paymentError.value = messages[code] ||  errorData?.error || e.message|| "Ocurrió un error inesperado.";
 }
 
 </script>

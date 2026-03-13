@@ -197,7 +197,7 @@ async function initSecureFields() {
     }
 
     mp = new window.MercadoPago(pk.trim(), { 
-        locale: "es-UY",
+        locale: import.meta.env.VITE_MP_LOCALE,
         advancedFraudPrevention: false
     });
     fields = mp.fields;
