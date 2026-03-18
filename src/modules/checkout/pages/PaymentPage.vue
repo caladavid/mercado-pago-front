@@ -268,7 +268,7 @@ async function initSecureFields() {
   if (fields) return;
   try {
     await loadMercadoPago();
-    const pk = store.checkout?.mp_public_key; 
+    const pk = store.checkout?.mp_public_key || import.meta.env.VITE_MP_PUBLIC_KEY; 
 
     console.log("%c🛡️ CONFIGURACIÓN MERCADO PAGO", "color: white; background: #013a2f; padding: 4px; border-radius: 4px;");
     console.log("👉 Llave recibida del Backend:", pk);
@@ -510,6 +510,7 @@ async function submitWithNewCard() {
       payment_method_id: detectedMethod,
       save_card: saveInfo.value,
       /* action: 'save_only', */
+      bin: bin,
       installments: installments.value,
       idempotency_key: uuidv4(),
       type: store.checkout.type === "subscription" ? 'subscription' : 'payment',
