@@ -268,16 +268,7 @@ async function initSecureFields() {
   if (fields) return;
   try {
     await loadMercadoPago();
-    /* const pk = store.checkout?.mp_public_key || import.meta.env.VITE_MP_PUBLIC_KEY; */
-
     const pk = store.checkout?.mp_public_key; 
-
-    if (mp && currentPk !== pk) {
-      console.log("🔄 Detectado cambio de contexto (Pago <-> Sub), reiniciando SDK...");
-      // Destruir campos anteriores si es necesario
-      fields = null;
-      mp = null; 
-  }
 
     console.log("%c🛡️ CONFIGURACIÓN MERCADO PAGO", "color: white; background: #013a2f; padding: 4px; border-radius: 4px;");
     console.log("👉 Llave recibida del Backend:", pk);
@@ -291,10 +282,6 @@ async function initSecureFields() {
     mp = new window.MercadoPago(pk || import.meta.env.VITE_MP_PUBLIC_KEY, { 
       locale: import.meta.env.VITE_MP_LOCALE 
     });
-
-/*     mp = new window.MercadoPago(pk || import.meta.env.VITE_MP_PUBLIC_KEY, { 
-      locale: "es-UY" 
-    }); */
 
     const customerId = store.checkout?.mp_customer_id;
 
@@ -383,8 +370,8 @@ async function submitWithSavedCard() {
     if (!mp) {
       await loadMercadoPago();
       const pk = store.checkout?.mp_public_key || import.meta.env.VITE_MP_PUBLIC_KEY;
-      
-      mp = new window.MercadoPago(pk, { locale: "es-UY" });
+
+      mp = new window.MercadoPago(pk, { locale: import.meta.env.VITE_MP_LOCALE });
     }
 
     console.log("🔍 Generando token tradicional para Card ID:", store.selectedCardId);
@@ -441,6 +428,24 @@ async function submitWithSavedCard() {
 
 }
 
+const validateDocument = (type, number) => {  
+  const cleanNumber = number.replace(/[\.\-]/g, '').toUpperCase();  
+    
+  switch (type) {  
+    case 'RUT':  
+      // Validar formato chileno: 7-8 dígitos + K o número  
+      return /^\d{7,8}[0-9K]$/i.test(cleanNumber);  
+    case 'DNI':  
+      // Validar DNI argentino: 7-8 dígitos  
+      return /^\d{7,8}$/.test(cleanNumber);  
+    case 'CI':  
+      // Validar CI uruguaya: 7-8 dígitos  
+      return /^\d{7,8}$/.test(cleanNumber);  
+    default:  
+      return cleanNumber.length >= 5; // Validación mínima  
+  }  
+}; 
+
 async function submitWithNewCard() {
   if (!fields) {
       console.error("El formulario de tarjeta no se cargó correctamente");
@@ -451,6 +456,10 @@ async function submitWithNewCard() {
   try {
     // --- PASO 1: CREAR EL TOKEN DE PAGO ---
     const cleanIdentificationNumber = identificationNumber.value.replace(/[\.\-]/g, '').toUpperCase();
+
+    if (!validateDocument(identificationType.value, cleanIdentificationNumber)) {  
+      throw new Error(`El número de ${identificationType.value} no parece ser válido. Por favor, revísalo.`);  
+    }  
 
     const tokenParams = {
       cardholderName: cardholderName.value.trim(),
@@ -515,7 +524,6 @@ async function submitWithNewCard() {
     };
 
     const resp = await payCheckout(externalReference.value, payload);
-    console.log("resp", resp);
     handleResponse(resp);
 
   } catch (e) { 
@@ -546,12 +554,13 @@ function handleResponse(resp) {
   setTimeout(() => {
       if (window.parent && window.parent !== window) {
           window.parent.postMessage({ 
-          status: 'PAYMENT_SUCCESS', 
-          payment: resp.payment,
-          back_url: resp.back_url || store.checkout?.back_url,
-          external_reference: resp.payment.external_reference,
-          order_id: store.checkout?.order?.id,
-        }, "*");
+            status: 'PAYMENT_SUCCESS', 
+            payment: resp.payment,
+            back_url: resp.back_url || store.checkout?.back_url,
+            external_reference: resp.payment.external_reference,
+            order_id: store.checkout?.order?.id,
+            timestamp: Date.now()
+          }, "*");
       } else {
         if (url) {
           window.location.href = url; 
@@ -571,37 +580,91 @@ function handleError(e) {
   const code = errorData?.code || errorData?.status_detail;
   console.log("handleError", errorData);
   
-  const messages = {
-    // --- Errores de Validación (Campos Vacíos / SDK) ---
-    "205": "Ingresa el número de tu tarjeta.",
-    "208": "Selecciona el mes de expiración.",
-    "209": "Selecciona el año de expiración.",
-    "212": "Selecciona tu tipo de documento.",
-    "213": "Ingresa tu número de documento.",
-    "214": "Ingresa tu número de documento.",
-    "221": "Ingresa el nombre y apellido exactamente como aparece en la tarjeta.",
-    "224": "Ingresa el código de seguridad (CVC).",
-    "E301": "Hay un error con el número de tarjeta. Revisa los dígitos.",
-    "E302": "El código de seguridad (CVC) es incorrecto. Suele estar al reverso.",
-
-    // --- Errores de Integración o Tokens ---
-    "10102": "Por razones de seguridad, necesitamos que vuelvas a ingresar los datos de tu tarjeta.",
-
-    // --- Motivos de Rechazo (El banco o MP dijeron que NO) ---
-    "cc_rejected_insufficient_amount": "Tu tarjeta no tiene fondos suficientes. Por favor, intenta con otro medio de pago.",
-    "cc_rejected_bad_filled_security_code": "El código de seguridad es incorrecto. Revísalo e intenta de nuevo.",
-    "cc_rejected_bad_filled_date": "La fecha de expiración es incorrecta. Revísala e intenta de nuevo.",
-    "cc_rejected_bad_filled_other": "Los datos de la tarjeta son incorrectos. Revísalos e intenta de nuevo.",
-    "cc_rejected_call_for_authorize": "Tu banco requiere autorización. Llama para autorizar el pago a Mercado Pago o usa otra tarjeta.",
-    "cc_rejected_high_risk": "El pago fue rechazado por seguridad. Por favor, intenta con otra tarjeta diferente.",
-    "cc_rejected_card_disabled": "Tu tarjeta parece estar inactiva. Llama a tu banco para activarla o usa otra.",
-    "cc_rejected_invalid_installments": "Esta tarjeta no admite la cantidad de cuotas seleccionada. Elige otra opción.",
-    
-    // --- Agregados clave de Mercado Pago ---
-    "cc_rejected_other_reason": "Tu banco no aprobó el pago. Te recomendamos intentar con otra tarjeta.",
-    "cc_rejected_duplicated_payment": "Ya registramos un pago exacto a este hace unos minutos. Revisa tu email para evitar cobros dobles.",
-    "cc_rejected_max_attempts": "Alcanzaste el límite de intentos permitidos. Intenta más tarde o con otra tarjeta."
-  };
+  const messages = {  
+    // --- Errores de Validación de Campos (Fields API) ---  
+    "invalid_type": "El formato del dato es incorrecto.",  
+    "invalid_length": "La longitud del campo no es válida.",  
+    "invalid_value": "El valor ingresado no es válido.",  
+      
+    // --- Errores de Brick (ErrorCause) ---  
+    "already_initialized": "El componente ya fue inicializado.",  
+    "amount_is_not_number": "El monto debe ser un número.",  
+    "amount_is_not_number_in_update": "El monto para actualizar debe ser un número.",  
+    "card_token_creation_failed": "No se pudo crear el token de la tarjeta.",  
+    "secure_fields_card_token_creation_failed": "Error en los campos seguros de la tarjeta.",  
+    "container_not_found": "No se encontró el contenedor del componente.",  
+    "fields_setup_failed": "Error al configurar los campos del formulario.",  
+    "fields_setup_failed_after_3_tries": "Falló la configuración después de 3 intentos.",  
+    "financial_institution_not_found": "Institución financiera no encontrada.",  
+    "get_address_data_failed": "Error al obtener datos de dirección.",  
+    "get_card_bin_payment_methods_failed": "Error al obtener métodos de pago del BIN.",  
+    "get_card_issuers_failed": "Error al obtener emisores de tarjeta.",  
+    "get_identification_types_failed": "Error al obtener tipos de documento.",  
+    "get_mexico_payment_points_failed": "Error al obtener puntos de pago México.",  
+    "get_config_assets_failed": "Error al obtener configuración de assets.",  
+    "get_payment_installments_failed": "Error al obtener cuotas disponibles.",  
+    "empty_installments": "No hay cuotas disponibles.",  
+    "get_payment_methods_failed": "Error al obtener métodos de pago.",  
+    "get_preference_details_failed": "Error al obtener detalles de preferencia.",  
+    "get_saved_cards_failed": "Error al obtener tarjetas guardadas.",  
+    "get_saved_cards_on_bricks_api_failed": "Error al obtener tarjetas guardadas del API.",  
+    "incomplete_fields": "Por favor completa todos los campos requeridos.",  
+    "incorrect_initialization": "Inicialización incorrecta del componente.",  
+    "invalid_preference_purpose": "El propósito de la preferencia no es válido.",  
+    "invalid_sdk_instance": "La instancia del SDK no es válida.",  
+    "missing_amount_property": "Falta especificar el monto.",  
+    "missing_site_property": "Falta especificar el sitio.",  
+    "missing_container_id": "Falta el ID del contenedor.",  
+    "missing_locale_property": "Falta especificar el idioma.",  
+    "missing_payment_information": "Falta información de pago.",  
+    "missing_payment_type": "Falta el tipo de pago.",  
+    "missing_required_callbacks": "Faltan callbacks requeridos.",  
+    "missing_required_review_props": "Faltan propiedades requeridas para revisión.",  
+    "missing_texts": "Faltan textos de configuración.",  
+    "no_preference_provided": "No se proporcionó preferencia.",  
+    "no_chunk_path_provided": "No se proporcionó ruta de chunk.",  
+    "settings_empty": "La configuración está vacía.",  
+    "translation_key_not_found": "No se encontró la clave de traducción.",  
+    "unauthorized_payment_method": "Método de pago no autorizado.",  
+    "update_preference_details_failed": "Error al actualizar preferencia.",  
+    "validations_parameter_null": "Parámetro de validación nulo.",  
+    "get_chunk_failed": "Error al obtener chunk.",  
+    "window_redirect_was_blocked": "La redirección fue bloqueada.",  
+    "no_payment_method_for_provided_bin": "No hay método de pago para el BIN proporcionado.",  
+    "payment_method_not_in_allowed_types": "Método de pago no permitido.",  
+    "payment_method_not_in_allowed_methods": "Método de pago no en métodos permitidos.",  
+    "no_installments_in_selected_range": "No hay cuotas en el rango seleccionado.",  
+    "no_issuers_found_for_card": "No se encontraron emisores para la tarjeta.",  
+      
+    // --- Errores de Validación (Campos Vacíos / SDK) ---  
+    "205": "Ingresa el número de tu tarjeta.",  
+    "208": "Selecciona el mes de expiración.",  
+    "209": "Selecciona el año de expiración.",  
+    "212": "Selecciona tu tipo de documento.",  
+    "213": "Ingresa tu número de documento.",  
+    "214": "Ingresa tu número de documento.",  
+    "221": "Ingresa el nombre y apellido exactamente como aparece en la tarjeta.",  
+    "224": "Ingresa el código de seguridad (CVC).",  
+    "E301": "Hay un error con el número de tarjeta. Revisa los dígitos.",  
+    "E302": "El código de seguridad (CVC) es incorrecto. Suele estar al reverso.",  
+  
+    // --- Errores de Integración ---  
+    "10102": "Por razones de seguridad, necesitamos que vuelvas a ingresar los datos de tu tarjeta.",  
+    "2010": "Tarjeta no encontrada.",  
+  
+    // --- Motivos de Rechazo del Banco ---  
+    "cc_rejected_insufficient_amount": "Tu tarjeta no tiene fondos suficientes.",  
+    "cc_rejected_bad_filled_security_code": "El código de seguridad es incorrecto.",  
+    "cc_rejected_bad_filled_date": "La fecha de expiración es incorrecta.",  
+    "cc_rejected_bad_filled_other": "Los datos de la tarjeta son incorrectos.",  
+    "cc_rejected_call_for_authorize": "Tu banco requiere autorización. Llama para aprobar.",  
+    "cc_rejected_high_risk": "Pago rechazado por seguridad. Intenta con otra tarjeta.",  
+    "cc_rejected_card_disabled": "Tu tarjeta está inactiva. Llama a tu banco.",  
+    "cc_rejected_invalid_installments": "Esta tarjeta no admite esas cuotas.",  
+    "cc_rejected_other_reason": "Tu banco no aprobó el pago. Intenta con otra tarjeta.",  
+    "cc_rejected_duplicated_payment": "Ya registramos un pago idéntico. Revisa tu email.",  
+    "cc_rejected_max_attempts": "Alcanzaste el límite de intentos. Intenta más tarde."  
+  };  
 
   paymentError.value = messages[code] ||  errorData?.error || e.message|| "Ocurrió un error inesperado.";
 }
@@ -613,7 +676,7 @@ function handleError(e) {
 
 /* === LAYOUT === */
 * {
-  box-sizing: border-box; /* 👈 AÑADIR ESTO */
+  box-sizing: border-box; 
 }
 .checkout-layout { 
   display: flex; 
