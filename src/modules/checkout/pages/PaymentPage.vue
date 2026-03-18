@@ -3,7 +3,9 @@
     
     <aside class="summary-panel">
       <div class="summary-content">
-        <div class="back-link" @click="goBack"><span>←</span> Volver</div>
+        <!-- <div class="back-link" @click="goBack">
+          <span>←</span> Volver
+        </div> -->
 
         <div v-if="store.loading && !store.checkout" class="loading-text">
           Cargando pedido...
@@ -85,7 +87,7 @@
             </div>
             <div class="half">
               <label>Número Doc *</label>
-              <input v-model.trim="identificationNumber" placeholder="Ej: 12345678" class="input-clean" :disabled="paying">
+              <input v-model.trim="identificationNumber" placeholder="Ej: 12345678K" class="input-clean" :disabled="paying">
             </div>
           </div>
 
@@ -199,6 +201,7 @@ import { useRoute } from "vue-router";
 import { useCheckoutStore } from "../../../store/checkout.store";
 import { loadMercadoPago } from "@mercadopago/sdk-js";
 import { deleteCheckoutCard, payCheckout } from "../../../api/checkout.api"; 
+import { v4 as uuidv4 } from 'uuid';
 
 const route = useRoute();
 const store = useCheckoutStore();
@@ -380,6 +383,7 @@ async function submitWithSavedCard() {
     if (!mp) {
       await loadMercadoPago();
       const pk = store.checkout?.mp_public_key || import.meta.env.VITE_MP_PUBLIC_KEY;
+      
       mp = new window.MercadoPago(pk, { locale: "es-UY" });
     }
 
@@ -410,13 +414,24 @@ async function submitWithSavedCard() {
         email: payerEmail.value, 
         first_name: cardholderName.value.split(" ")[0] 
       },
-      idempotency_key: self.crypto.randomUUID(),
+      idempotency_key: uuidv4(),
       type: isSub ? 'subscription' : 'payment',
     };
+
     const resp = await payCheckout(externalReference.value, payload);
     handleResponse(resp);
 
   } catch (e) { 
+    console.error("❌ DETAILED ERROR:");  
+    console.error("- Message:", e.message);  
+    console.error("- Stack:", e.stack);  
+    console.error("- Error Object:", JSON.stringify(e, null, 2));  
+      
+    // Verificar si es error del SDK  
+    if (e.cause) {  
+        console.error("- SDK Cause:", e.cause);  
+    }  
+
     handleError(e); 
 
   } finally { 
@@ -432,76 +447,46 @@ async function submitWithNewCard() {
       return;
   }
   startPayment();
+
   try {
     // --- PASO 1: CREAR EL TOKEN DE PAGO ---
+    const cleanIdentificationNumber = identificationNumber.value.replace(/[\.\-]/g, '').toUpperCase();
+
     const tokenParams = {
       cardholderName: cardholderName.value.trim(),
       identificationType: identificationType.value,
-      identificationNumber: identificationNumber.value
+      identificationNumber: cleanIdentificationNumber
     }
 
     const tokenRespPago = await fields.createCardToken(tokenParams);
-    /* const tokenRespPago = await fields.createCardToken({
-      cardholderName: cardholderName.value.trim(),
-      identificationType: identificationType.value,
-      identificationNumber: identificationNumber.value
-    }); */
-
     if (tokenRespPago.error) throw new Error(tokenRespPago.error.message);
 
     // --- PASO 2: DETECTAR EL MÉTODO ---
-    const bin = tokenRespPago.first_six_digits;
-    // Aquí obtenemos el método real que detectó el SDK (ej: 'debvisa' o 'visa')
-    let detectedMethod = tokenRespPago.payment_method_id;
+    const bin = tokenRespPago.first_six_digits;  
+    let detectedMethod;  
 
-    if (!detectedMethod && bin) {
-        try {
-            const results = await mp.getPaymentMethods({ bin });
-            // La respuesta puede variar según versión, suele ser un array o un objeto con results
-            const methods = results.results || results; 
-            if (methods && methods.length > 0) {
-                detectedMethod = methods[0].id;
-            }
-        } catch (e) {
-            console.warn("⚠️ No se pudo obtener método por API, usando fallback local.");
-        }
+    try {  
+        const paymentMethods = await mp.getPaymentMethods({ bin });  
+        detectedMethod = paymentMethods.results[0]?.id;  
+    } catch (e) {  
+        console.error("Error getting payment methods:", e);  
+    }  
+      
+    if (!detectedMethod) {  
+        throw new Error("No pudimos detectar el tipo de tarjeta. Verifica el número ingresado.");  
     }
 
-    if (!detectedMethod) {
-        if (bin.startsWith('4')) detectedMethod = 'visa';
-        else if (bin.startsWith('5')) detectedMethod = 'master';
-        else if (bin.startsWith('3')) detectedMethod = 'amex'; // Ejemplo
-    }
-    
-    console.log(`✅ Método Detectado: ${detectedMethod} | BIN: ${bin}`);
-
-    let tokenRespRegistro = null;
-    const mp_registration_token = ref(""); // Aseguramos que tenga donde guardarse
+    console.log(`✅ Método Detectado por MP: ${detectedMethod}`);
 
     // --- PASO 3: CREAR EL TOKEN DE REGISTRO (SOLO SI saveInfo ES TRUE) ---
+    let tokenRespRegistro = null;
     if (saveInfo.value) {
         try {
-            // NORMALIZACIÓN PARA EVITAR EL ERROR 128:
-            // Para el registro (storage), MP prefiere marcas raíz ('visa' o 'mastercard')
-            const storageMethod = detectedMethod?.includes('visa') ? 'visa' : 
-                                 (detectedMethod?.includes('master') ? 'mastercard' : 'visa');
+            tokenRespRegistro = await fields.createCardToken({
+              ...tokenParams,
+              paymentMethodId: detectedMethod
+            });
 
-            const tokenParams = {
-                cardholderName: cardholderName.value,
-                identificationType: identificationType.value,
-                identificationNumber: identificationNumber.value,
-                paymentMethodId: storageMethod 
-            };
-
-            console.log("🔍 [DEBUG] Solicitando Token de Registro con:", tokenParams);
-
-            tokenRespRegistro = await fields.createCardToken(tokenParams);
-
-            if (tokenRespRegistro.payment_method_id) {
-                console.log("📊 [ANALISIS] Token de registro generado con éxito:", tokenRespRegistro.payment_method_id);
-            } else {
-                console.warn("⚠️ ALERTA: El token de registro no tiene ID de método.");
-            }
         } catch (e) {
             console.error("❌ Error en el SDK al crear token de registro:", e);
         }
@@ -512,14 +497,12 @@ async function submitWithNewCard() {
     // --- PASO 5: PREPARAR EL PAYLOAD FINAL ---
     const payload = {
       mp_card_token: tokenRespPago.id, 
-      // Si se generó el de registro, lo mandamos
       mp_registration_token: (saveInfo.value && tokenRespRegistro) ? tokenRespRegistro.id : undefined,
       payment_method_id: detectedMethod,
       save_card: saveInfo.value,
       /* action: 'save_only', */
       installments: installments.value,
-      bin: bin,
-      idempotency_key: self.crypto.randomUUID(),
+      idempotency_key: uuidv4(),
       type: store.checkout.type === "subscription" ? 'subscription' : 'payment',
       user_id: store.checkout.user_id || store.checkout.order?.user_id,
       payer: {
@@ -527,11 +510,10 @@ async function submitWithNewCard() {
         first_name: parts[0] || "Cliente",
         last_name: parts.slice(1).join(" ") || "",
         doc_type: identificationType.value,
-        doc_number: identificationNumber.value
+        doc_number: cleanIdentificationNumber
       }
     };
 
-    console.log("🚀 Enviando al Backend:", payload.payment_method_id);
     const resp = await payCheckout(externalReference.value, payload);
     console.log("resp", resp);
     handleResponse(resp);
@@ -630,7 +612,17 @@ function handleError(e) {
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* === LAYOUT === */
-.checkout-layout { display: flex; min-height: 98vh; font-family: 'Inter', sans-serif; width: 100%; }
+* {
+  box-sizing: border-box; /* 👈 AÑADIR ESTO */
+}
+.checkout-layout { 
+  display: flex; 
+  min-height: 98vh; 
+  font-family: 'Inter', 
+  sans-serif; 
+  width: 100%;
+  overflow-x: hidden;
+}
 
 /* === IZQUIERDA (AZUL) === */
 .summary-panel {
