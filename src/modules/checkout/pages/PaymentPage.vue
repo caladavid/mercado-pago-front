@@ -3,9 +3,9 @@
     
     <aside class="summary-panel">
       <div class="summary-content">
-        <!-- <div class="back-link" @click="goBack">
+        <div v-if="store.checkout?.back_url" class="back-link" @click="goBack">
           <span>←</span> Volver
-        </div> -->
+        </div> 
 
         <div v-if="store.loading && !store.checkout" class="loading-text">
           Cargando pedido...
@@ -549,31 +549,25 @@ function handleResponse(resp) {
 
   paymentSuccess.value = "¡Pago exitoso! Redirigiendo...";
 
-  const url = store.checkout?.back_url;
-  console.log(url);
+  const finalRedirectUrl = resp.redirect_url || store.checkout?.back_url;
+  console.log("URL de redirección:", finalRedirectUrl);
 
   setTimeout(() => {
       if (window.parent && window.parent !== window) {
           window.parent.postMessage({ 
             status: 'PAYMENT_SUCCESS', 
             payment: resp.payment,
-            back_url: resp.back_url || store.checkout?.back_url,
+            back_url: finalRedirectUrl,
             external_reference: resp.payment.external_reference,
             order_id: store.checkout?.order?.id,
             timestamp: Date.now()
           }, "*");
       } else {
-        if (url) {
-          window.location.href = url; 
+        if (finalRedirectUrl) {
+          window.location.href = finalRedirectUrl; 
         }
       }
   }, 0);
-
-  /* if (url) {
-      setTimeout(() => { 
-      window.location.href = resp.back_url || store.checkout?.back_url; 
-    }, 2500);
-  } */
 }
 
 function handleError(e) {
@@ -668,6 +662,36 @@ function handleError(e) {
   };  
 
   paymentError.value = messages[code] ||  errorData?.error || e.message|| "Ocurrió un error inesperado.";
+
+  // Si estamos en un iframe, le avisamos a la página padre que hubo un intento fallido
+  // (Por si el padre quiere registrarlo en Analytics, pero NO lo obligamos a cerrar el iframe)
+  if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ 
+        status: 'PAYMENT_FAILED_ATTEMPT', 
+        error_code: code,
+        message: paymentError.value
+      }, "*");
+  }
+
+  // Si el error es un 404 o 409 (orden ya pagada), ahí SÍ lo sacamos de la pantalla.
+  const isFatalError = e.response?.status === 404 || e.response?.status === 409;
+  
+  if (isFatalError) {
+      // Intentamos sacar la URL del backend, si no, usamos el error_url del store, y si no, el back_url
+      const targetUrl = errorData?.redirect_url || store.checkout?.error_url || store.checkout?.back_url;
+    
+      if (targetUrl) {
+          console.log(`Error fatal detectado (${e.response?.status}). Redirigiendo a:`, targetUrl);
+          
+          setTimeout(() => {
+              if (window.parent && window.parent !== window) {
+                  window.parent.postMessage({ status: 'FATAL_ERROR_REDIRECT', url: targetUrl }, "*");
+              } else {
+                  window.location.href = targetUrl;
+              }
+          }, 3000); 
+      }
+  }
 }
 
 </script>
