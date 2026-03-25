@@ -25,8 +25,8 @@
             <span class="amount">
               {{ formatPago(store.checkout.total_amount || store.checkout.amount || store.checkout.price || store.checkout.item?.amount || store.checkout.items?.[0]?.unit_price) }}
             </span>
-            <span class="period" v-if="store.checkout.frequency_label">
-              / {{ store.checkout.frequency_label }}
+            <span class="period" v-if="isSubscription">
+              / {{ formattedFrequency }}
             </span>
           </div>
 
@@ -229,11 +229,29 @@ let expMonthField = null;
 let expYearField = null;
 let cvcField = null;
 
+const isSubscription = computed(() => {
+  return store.checkout?.type === 'subscription' || !!store.checkout?.preapproval_plan_id;
+});
+
 const hasSavedCards = computed(() => store.cards && store.cards.length > 0);
 const canGoToStep2 = computed(() => {
   return payerEmail.value.length > 5 && 
          cardholderName.value.length > 3 && 
          identificationNumber.value.length > 5;
+});
+
+// Traduce la frecuencia (ej: 1 months -> 1 mes)
+const formattedFrequency = computed(() => {
+  const freq = store.checkout?.frequency || store.checkout?.auto_recurring?.frequency;
+  const type = store.checkout?.frequency_type || store.checkout?.auto_recurring?.frequency_type;
+  
+  if (!freq || !type) return 'mes'; 
+  
+  const isPlural = parseInt(freq) > 1;
+  const typeEs = type === 'months' ? (isPlural ? 'meses' : 'mes') : 
+                 type === 'days' ? (isPlural ? 'días' : 'día') : type;
+                 
+  return `${freq} ${typeEs}`;
 });
 
 const formatPago = (value) => {
