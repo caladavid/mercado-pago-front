@@ -228,6 +228,7 @@ let cardNumberField = null;
 let expMonthField = null;
 let expYearField = null;
 let cvcField = null;
+const logsToBackend = true;
 
 const isSubscription = computed(() => {
   return store.checkout?.type === 'subscription' || !!store.checkout?.preapproval_plan_id;
@@ -588,10 +589,68 @@ function handleResponse(resp) {
   }, 0);
 }
 
+const reportErrorToBackend = async (message, context, metadata = {}) => {
+  console.log("🟡 [reportErrorToBackend] Iniciando envío de log...", { message, context });
+
+  try {
+    /* const logUrl = `http://localhost:3001/api/logs/frontend`; */
+    const logUrl = `https://checkoutmp-api.celcomlatam.com/api/logs/frontend`;
+
+    const rawName = cardholderName.value ? cardholderName.value.trim() : "";
+    const nameParts = rawName ? rawName.split(" ") : [];
+    
+    const rawDoc = identificationNumber.value || "";
+    const cleanDoc = rawDoc.replace(/[\.\-]/g, '').toUpperCase();
+
+    const safeEmail = payerEmail.value;
+
+    await fetch(logUrl, {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        level: 'error',
+        context: context,
+        message: message,
+        userEmail: safeEmail,
+        metadata: {
+          ...metadata,
+          payer_info: {
+            email: safeEmail,
+            first_name: nameParts[0],
+            last_name: nameParts.slice(1).join(" "),
+            doc_type: identificationType.value,
+            doc_number: cleanDoc
+          },
+          external_reference: externalReference.value,
+          userAgent: navigator.userAgent,
+          checkout_type: store.checkout?.type,
+          url: window.location.href
+        }
+      })
+    });
+    console.log("✅ [reportErrorToBackend] Error reportado al sistema de logs.");
+  } catch (error) {
+    // Si algo falla aquí, ahora sí sabremos qué fue exactamente
+    console.error("❌ No se pudo enviar el log al backend:", error);
+  }
+}
+
 function handleError(e) {
   const errorData = e.response?.data || e;
   const code = errorData?.code || errorData?.status_detail;
   console.log("handleError", errorData);
+
+  if (logsToBackend) {
+    reportErrorToBackend(
+      `Error de Pago: ${code || 'Unknown'}`, 
+      "CHECKOUT_PAYMENT_FAILURE", 
+      { 
+        error_raw: errorData,
+        step: currentStep.value,
+        isAddingNewCard: isAddingNewCard.value 
+      }
+    );
+  }
   
   const messages = {  
     // --- Errores de Validación de Campos (Fields API) ---  
