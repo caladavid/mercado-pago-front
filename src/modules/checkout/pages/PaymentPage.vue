@@ -590,7 +590,7 @@ function handleResponse(resp) {
 }
 
 const reportErrorToBackend = async (message, context, metadata = {}) => {
-  console.log("🟡 [reportErrorToBackend] Iniciando envío de log...", { message, context });
+  console.log("[reportErrorToBackend] Iniciando envío de log...", { message, context });
 
   try {
     /* const logUrl = `http://localhost:3001/api/logs/frontend`; */
@@ -615,7 +615,6 @@ const reportErrorToBackend = async (message, context, metadata = {}) => {
         metadata: {
           ...metadata,
           payer_info: {
-            email: safeEmail,
             first_name: nameParts[0],
             last_name: nameParts.slice(1).join(" "),
             doc_type: identificationType.value,
@@ -638,19 +637,7 @@ const reportErrorToBackend = async (message, context, metadata = {}) => {
 function handleError(e) {
   const errorData = e.response?.data || e;
   const code = errorData?.code || errorData?.status_detail;
-  console.log("handleError", errorData);
 
-  if (logsToBackend) {
-    reportErrorToBackend(
-      `Error de Pago: ${code || 'Unknown'}`, 
-      "CHECKOUT_PAYMENT_FAILURE", 
-      { 
-        error_raw: errorData,
-        step: currentStep.value,
-        isAddingNewCard: isAddingNewCard.value 
-      }
-    );
-  }
   
   const messages = {  
     // --- Errores de Validación de Campos (Fields API) ---  
@@ -739,6 +726,20 @@ function handleError(e) {
   };  
 
   paymentError.value = messages[code] ||  errorData?.error || e.message|| "Ocurrió un error inesperado.";
+
+  if (logsToBackend) {
+    reportErrorToBackend(
+      `Error de Pago: ${code || 'Unknown'}: ${paymentError.value}`, 
+      "CHECKOUT_PAYMENT_FAILURE", 
+      { 
+        error_raw: errorData,
+        error_code: code,
+        friendly_message: paymentError.value,
+        step: currentStep.value,
+        isAddingNewCard: isAddingNewCard.value 
+      }
+    );
+  }
 
   // Si estamos en un iframe, le avisamos a la página padre que hubo un intento fallido
   // (Por si el padre quiere registrarlo en Analytics, pero NO lo obligamos a cerrar el iframe)
