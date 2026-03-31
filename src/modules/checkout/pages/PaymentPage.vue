@@ -736,7 +736,8 @@ function handleError(e) {
         error_code: code,
         friendly_message: paymentError.value,
         step: currentStep.value,
-        isAddingNewCard: isAddingNewCard.value 
+        isAddingNewCard: isAddingNewCard.value,
+        stack_trace: e instanceof Error ? e.stack : undefined
       }
     );
   }
