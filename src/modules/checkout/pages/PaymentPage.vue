@@ -487,7 +487,15 @@ async function submitWithNewCard() {
     }
 
     const tokenRespPago = await fields.createCardToken(tokenParams);
-    if (tokenRespPago.error) throw new Error(tokenRespPago.error.message);
+    if (tokenRespPago.error) {
+      // Si el SDK devuelve causas específicas (ej. "205" campo vacío), sacamos el primer código para que handleError lo traduzca
+      const errorCode = tokenRespPago.error.cause?.[0]?.code || tokenRespPago.error.message;
+      
+      // Creamos un error estructurado para que handleError no se confunda
+      const errorObj = new Error("Error validando tarjeta");
+      errorObj.code = String(errorCode); 
+      throw errorObj;
+    }
 
     // --- PASO 2: DETECTAR EL MÉTODO ---
     const bin = tokenRespPago.first_six_digits;  
@@ -636,8 +644,8 @@ const reportErrorToBackend = async (message, context, metadata = {}) => {
 
 function handleError(e) {
   const errorData = e.response?.data || e;
-  const code = errorData?.code || errorData?.status_detail;
-
+  const isNativeError = e instanceof Error || e instanceof DOMException;
+  const code = e.code || errorData?.code || errorData?.status_detail || (isNativeError ? 'NATIVE_ERROR' : null);
   
   const messages = {  
     // --- Errores de Validación de Campos (Fields API) ---  
@@ -726,6 +734,7 @@ function handleError(e) {
   };  
 
   paymentError.value = messages[code] ||  errorData?.error || e.message|| "Ocurrió un error inesperado.";
+  console.log("handleError capturó:", errorData);
 
   if (logsToBackend) {
     reportErrorToBackend(
