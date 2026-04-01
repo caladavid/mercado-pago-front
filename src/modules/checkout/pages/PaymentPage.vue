@@ -448,12 +448,12 @@ async function submitWithSavedCard() {
 }
 
 const validateDocument = (type, number) => {  
-  const cleanNumber = number.replace(/[\.\-]/g, '').toUpperCase();  
+  const cleanNumber = number.replace(/[\.\-\s]/g, '').toUpperCase();  
     
   switch (type) {  
     case 'RUT':  
       // Validar formato chileno: 7-8 dígitos + K o número  
-      return /^\d{7,8}[0-9K]$/i.test(cleanNumber);  
+      return /^\d{7,10}[\dK]$/.test(cleanNumber); 
     case 'DNI':  
       // Validar DNI argentino: 7-8 dígitos  
       return /^\d{7,8}$/.test(cleanNumber);  
