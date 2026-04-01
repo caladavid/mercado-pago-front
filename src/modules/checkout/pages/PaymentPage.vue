@@ -453,7 +453,7 @@ const validateDocument = (type, number) => {
   switch (type) {  
     case 'RUT':  
       // Validar formato chileno: 7-8 dígitos + K o número  
-      return /^\d{7,10}[\dK]$/.test(cleanNumber); 
+      return /^\d{7,9}[\dK]$/.test(cleanNumber); 
     case 'DNI':  
       // Validar DNI argentino: 7-8 dígitos  
       return /^\d{7,8}$/.test(cleanNumber);  
