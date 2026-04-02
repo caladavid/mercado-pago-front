@@ -91,7 +91,7 @@
                 v-model.trim="identificationNumber" 
                 @input="formatDocument"
                 :maxlength="identificationType === 'RUT' ? 10 : 12"
-                placeholder="Ej: 12345678K" 
+                placeholder="Ej: 19283745-K" 
                 class="input-clean" 
                 :disabled="paying"
               >
@@ -463,12 +463,17 @@ async function submitWithSavedCard() {
 const formatDocument = (event) => {
   if (identificationType.value !== 'RUT') return;
 
-  // Limpiamos todo lo que no sea número o K
+  // 1. Solo permitimos números y la letra K
   let value = event.target.value.replace(/[^0-9kK]/g, '').toUpperCase();
   
-  // Ponemos el guion antes del último dígito
+  // 2. Limitamos a 9 caracteres puros (máximo legal en Chile)
+  if (value.length > 9) value = value.slice(0, 9);
+
+  // 3. Aplicamos el guion antes del último carácter (Dígito Verificador)
   if (value.length > 1) {
-    value = value.slice(0, -1) + '-' + value.slice(-1);
+    const body = value.slice(0, -1);
+    const dv = value.slice(-1);
+    value = `${body}-${dv}`;
   }
   
   identificationNumber.value = value;
@@ -499,9 +504,17 @@ async function submitWithNewCard() {
   }
   startPayment();
 
+  const timeoutAction = setTimeout(() => {
+    if (paying.value) {
+      paying.value = false;
+      paymentError.value = "Para proteger tus datos, nuestro sistema de pagos requiere una conexión directa. Algunas configuraciones de privacidad o bloqueadores pueden interrumpirla. Intenta pausarlos un momento o usar el modo incógnito.";
+    }
+  }, 12000);
+
   try {
     // --- PASO 1: CREAR EL TOKEN DE PAGO ---
-    const cleanIdentificationNumber = identificationNumber.value.replace(/[\.\-]/g, '').toUpperCase();
+    // .replace(/[\.\-\s]/g, '') es el blindaje contra espacios y guiones
+    const cleanIdentificationNumber = identificationNumber.value.replace(/[\.\-\s]/g, '').toUpperCase();
 
     if (!validateDocument(identificationType.value, cleanIdentificationNumber)) {  
       throw new Error(`El número de ${identificationType.value} no parece ser válido. Por favor, revísalo.`);  
@@ -584,6 +597,7 @@ async function submitWithNewCard() {
   } catch (e) { 
     handleError(e); 
   } finally { 
+    clearTimeout(timeoutAction);
     paying.value = false; 
   }
 }
