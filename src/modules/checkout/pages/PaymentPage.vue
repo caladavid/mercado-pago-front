@@ -87,7 +87,14 @@
             </div>
             <div class="half">
               <label>Número Doc *</label>
-              <input v-model.trim="identificationNumber" placeholder="Ej: 12345678K" class="input-clean" :disabled="paying">
+              <input 
+                v-model.trim="identificationNumber" 
+                @input="formatDocument"
+                :maxlength="identificationType === 'RUT' ? 10 : 12"
+                placeholder="Ej: 12345678K" 
+                class="input-clean" 
+                :disabled="paying"
+              >
             </div>
           </div>
 
@@ -287,6 +294,12 @@ async function initSecureFields() {
   if (fields) return;
   try {
     await loadMercadoPago();
+
+    if (typeof window.MercadoPago === 'undefined') {
+      paymentError.value = "⚠️ Un bloqueador de anuncios (ej. Privacy Badger) está bloqueando el sistema de pagos. Por favor, pausa la extensión en esta página.";
+      return;
+    }
+
     const pk = store.checkout?.mp_public_key || import.meta.env.VITE_MP_PUBLIC_KEY; 
 
     console.log("%c🛡️ CONFIGURACIÓN MERCADO PAGO", "color: white; background: #013a2f; padding: 4px; border-radius: 4px;");
@@ -446,6 +459,20 @@ async function submitWithSavedCard() {
   }
 
 }
+
+const formatDocument = (event) => {
+  if (identificationType.value !== 'RUT') return;
+
+  // Limpiamos todo lo que no sea número o K
+  let value = event.target.value.replace(/[^0-9kK]/g, '').toUpperCase();
+  
+  // Ponemos el guion antes del último dígito
+  if (value.length > 1) {
+    value = value.slice(0, -1) + '-' + value.slice(-1);
+  }
+  
+  identificationNumber.value = value;
+};
 
 const validateDocument = (type, number) => {  
   const cleanNumber = number.replace(/[\.\-\s]/g, '').toUpperCase();  
@@ -735,6 +762,22 @@ function handleError(e) {
 
   paymentError.value = messages[code] ||  errorData?.error || e.message|| "Ocurrió un error inesperado.";
   console.log("handleError capturó:", errorData);
+
+  const isBlockedByExtension = 
+    e.message?.includes('Failed to fetch') || 
+    e.message?.includes('Network Error') ||
+    paymentError.value.includes('ERR_BLOCKED_BY_CLIENT') ||
+    paymentError.value.includes('postMessage') ||
+    e.name === 'DOMException';
+
+  if (isBlockedByExtension) {
+    paymentError.value = "Para proteger tus datos, nuestro sistema de pagos requiere una conexión directa. Algunas configuraciones de privacidad o bloqueadores pueden interrumpirla. Intenta pausarlos un momento para completar tu compra.";
+    
+    if (logsToBackend) {
+      reportErrorToBackend("loqueo de entorno detectado", "ENVIRONMENT_BLOCK", { raw: e.message || e.name });
+    }
+    return; 
+  }
 
   if (logsToBackend) {
     reportErrorToBackend(
